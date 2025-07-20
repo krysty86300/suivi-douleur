@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Suivi de Santé 3D</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script async src="https://unpkg.com/es-module-shims@1.6.3/dist/es-module-shims.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.157.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+        }
+        #app-container {
+            display: flex;
+            width: 100vw;
+            height: 100vh;
+        }
+        #canvas-container {
+            flex-grow: 1;
+            height: 100%;
+            position: relative;
+            cursor: grab;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        #sidebar {
+            width: 380px;
+            flex-shrink: 0;
+            background-color: #1a202c;
+            color: white;
+            padding: 1.5rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .slider-track {
+            background-size: 100% 100%;
+            background-repeat: no-repeat;
+        }
+        #tooltip {
+            position: absolute;
+            display: none;
+            background-color: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            pointer-events: none;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            max-width: 250px;
+            z-index: 100;
+        }
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.6);
+            z-index: 40;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: #2d3748;
+            padding: 2rem;
+            border-radius: 0.75rem;
+            width: 90%;
+            max-width: 550px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+        .bristol-item {
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .bristol-item.selected {
+            border-color: #60a5fa;
+            transform: scale(1.05);
+            background-color: #4a5568;
+        }
+        #ai-analysis-content ul {
+            list-style-type: disc;
+            padding-left: 1.5rem;
+            margin-top: 1rem;
+        }
+        #ai-analysis-content li {
+            margin-bottom: 0.5rem;
+        }
+        .history-filter-btn {
+            background-color: #4a5568;
+        }
+        .history-filter-btn.active {
+            background-color: #4338ca;
+        }
+    </style>
+</head>
+<body class="bg-gray-800 text-white">
+
+    <div id="app-container">
+        <!-- Barre latérale -->
+        <aside id="sidebar">
+            <div class="flex-grow">
+                <h1 class="text-2xl font-bold mb-1">Suivi de Santé 3D</h1>
+                <p class="text-gray-400 mb-4 text-sm">Suivez vos douleurs, repas, mictions et selles.</p>
+                
+                <div class="grid grid-cols-3 gap-2 my-4">
+                    <button id="add-meal-btn" class="w-full text-sm bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-3 rounded-lg transition-colors duration-200">Ajouter Repas</button>
+                    <button id="add-urination-btn" class="w-full text-sm bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-3 rounded-lg transition-colors duration-200">Ajouter Miction</button>
+                    <button id="add-stool-btn" class="w-full text-sm bg-amber-700 hover:bg-amber-800 text-white font-bold py-2 px-3 rounded-lg transition-colors duration-200">Ajouter Selles</button>
+                </div>
+                
+                <h2 class="text-xl font-semibold mb-2 border-b border-gray-600 pb-2">Historique</h2>
+                <button id="ai-analysis-btn" class="w-full text-sm bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 text-white font-bold py-2 px-4 rounded-lg transition-all duration-200 mt-2 mb-4">✨ Analyse Intelligente</button>
+                 <div class="flex space-x-2 my-2">
+                    <button id="view-front-btn" class="w-full text-sm bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200">Avant</button>
+                    <button id="view-back-btn" class="w-full text-sm bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200">Arrière</button>
+                </div>
+                <div class="flex space-x-2 my-2">
+                    <button id="filter-10d" class="history-filter-btn w-full text-sm hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200">10 jours</button>
+                    <button id="filter-30d" class="history-filter-btn active w-full text-sm hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200">30 jours</button>
+                </div>
+                <div id="history-list" class="space-y-3 pr-2 overflow-y-auto" style="max-height: calc(100vh - 480px);">
+                    <p id="no-history" class="text-gray-500">Aucune donnée pour le moment.</p>
+                </div>
+            </div>
+
+            <div class="mt-6 pt-6 border-t border-gray-600 space-y-3">
+                <button id="save-json-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200">Sauvegarder</button>
+                <button id="generate-pdf-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200">Générer PDF</button>
+                <button id="load-json-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200">Charger</button>
+                <input type="file" id="json-upload" class="hidden" accept=".json">
+            </div>
+        </aside>
+
+        <!-- Conteneur 3D -->
+        <div id="canvas-container">
+            <div id="tooltip"></div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="pain-modal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <h3 id="pain-modal-title" class="text-2xl font-bold mb-6">Ajouter une Douleur</h3>
+            <form id="pain-form">
+                <div class="mb-4">
+                    <label for="pain-intensity" class="block mb-2 font-medium">Intensité</label>
+                    <div class="flex items-center space-x-4">
+                        <input type="range" id="pain-intensity" min="0" max="10" value="5" class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer slider-track">
+                        <span id="intensity-value" class="font-bold text-lg w-12 text-center">5</span>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label for="pain-sensation" class="block mb-2 font-medium">Sensation</label>
+                    <select id="pain-sensation" class="w-full bg-gray-600 border border-gray-500 text-white rounded-lg p-2.5">
+                        <option>Brûlure</option><option>Lancinante</option><option>Coup de poignard</option><option>Électrique</option><option selected>Sourde / Courbature</option><option>Pulsatile</option><option>Étau / Pression</option><option>Picotements</option><option>Fourmillements</option><option>Engourdissement</option><option>Crampe</option><option>Tiraillement</option><option>Pesanteur</option>
+                    </select>
+                </div>
+                 <div class="mb-4 flex items-center" id="permanent-pain-container">
+                    <input id="pain-permanent" type="checkbox" class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded">
+                    <label for="pain-permanent" class="ml-2 font-medium">Douleur permanente (chronique)</label>
+                </div>
+                <div class="mb-4">
+                    <label for="pain-datetime" class="block mb-2 font-medium">Date et heure</label>
+                    <input type="datetime-local" id="pain-datetime" class="w-full bg-gray-600 border border-gray-500 text-white rounded-lg p-2.5">
+                </div>
+                <div class="mb-6">
+                    <label for="pain-duration" class="block mb-2 font-medium">Durée</label>
+                    <input type="text" id="pain-duration" placeholder="ex: 1 heure" class="w-full bg-gray-600 border border-gray-500 text-white rounded-lg p-2.5">
+                </div>
+                <div class="flex justify-end space-x-4">
+                    <button type="button" class="cancel-btn py-2 px-5 bg-gray-500 hover:bg-gray-600 rounded-lg font-medium">Annuler</button>
+                    <button type="submit" class="py-2 px-5 bg-indigo-600 hover:bg-indigo-700 rounded-lg font-bold">Enregistrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div id="meal-modal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <h3 class="text-2xl font-bold mb-6">Ajouter un Repas</h3>
+            <form id="meal-form">
+                <div class="mb-4">
+                    <label for="meal-size" class="block mb-2 font-medium">Taille du repas</label>
+                    <select id="meal-size" class="w-full bg-gray-600 border border-gray-500 text-white rounded-lg p-2.5">
+                        <option>Petit</option><option selected>Moyen</option><option>Grand</option>
+                    </select>
+                </div>
+                <div class="mb-4">
+                    <label class="block mb-2 font-medium">Caractéristiques</label>
+                    <div class="flex space-x-4">
+                        <div class="flex items-center"><input id="meal-fatty" type="checkbox" class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded"><label for="meal-fatty" class="ml-2">Gras</label></div>
+                        <div class="flex items-center"><input id="meal-sugary" type="checkbox" class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded"><label for="meal-sugary" class="ml-2">Sucré</label></div>
+                        <div class="flex items-center"><input id="meal-salty" type="checkbox" class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded"><label for="meal-salty" class="ml-2">Salé</label></div>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label for="meal-notes" class="block mb-2 font-medium">Notes (optionnel)</label>
+                    <textarea id="meal-notes" rows="2" class="w-full bg-gray-600 border border-gray-500 text-white rounded-lg p-2.5" placeholder="Ex: Pizza, salade..."></textarea>
+                </div>
+                <div class="mb-6">
+                    <label for="meal-datetime" class="block mb-2 font-medium">Date et heure</label>
+                    <input type="datetime-local" id="meal-datetime" class="w-full bg-gray-600 border border-gray-500 text-white rounded-lg p-2.5">
+                </div>
+                <div class="flex justify-end space-x-4">
+                    <button type="button" class="cancel-btn py-2 px-5 bg-gray-500 hover:bg-gray-600 rounded-lg font-medium">Annuler</button>
+                    <button type="submit" class="py-2 px-5 bg-purple-600 hover:bg-purple-700 rounded-lg font-bold">Enregistrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="urination-modal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <h3 class="text-2xl font-bold mb-6">Ajouter une Miction</h3>
+            <form id="urination-form">
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block mb-2 font-medium">Volume</label>
+                        <select id="urine-volume" class="w-full bg-gray-600 border border-gray-500 text-white rounded-lg p-2.5">
+                            <option>Faible</option><option selected>Moyen</option><option>Élevé</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block mb-2 font-medium">Couleur</label>
+                        <select id="urine-color" class="w-full bg-gray-600 border border-gray-500 text-white rounded-lg p-2.5">
+                            <option>Clair</option><option selected>Jaune paille</option><option>Jaune foncé</option><option>Ambré</option><option>Orange</option><option>Rosé / Rouge</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-4">
+                    <label class="block mb-2 font-medium">Urgence</label>
+                     <select id="urine-urgency" class="w-full bg-gray-600 border border-gray-500 text-white rounded-lg p-2.5">
+                        <option>Aucune</option><option>Légère</option><option selected>Modérée</option><option>Forte</option><option>Impérieuse</option>
+                    </select>
+                </div>
+                 <div class="mb-4 flex items-center">
+                    <input id="urine-pain" type="checkbox" class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded">
+                    <label for="urine-pain" class="ml-2 font-medium">Douleur / Brûlure</label>
+                </div>
+                <div class="mb-6">
+                    <label for="urine-datetime" class="block mb-2 font-medium">Date et heure</label>
+                    <input type="datetime-local" id="urine-datetime" class="w-full bg-gray-600 border border-gray-500 text-white rounded-lg p-2.5">
+                </div>
+                <div class="flex justify-end space-x-4">
+                    <button type="button" class="cancel-btn py-2 px-5 bg-gray-500 hover:bg-gray-600 rounded-lg font-medium">Annuler</button>
+                    <button type="submit" class="py-2 px-5 bg-teal-600 hover:bg-teal-700 rounded-lg font-bold">Enregistrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div id="stool-modal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <h3 class="text-2xl font-bold mb-6">Ajouter des Selles</h3>
+            <form id="stool-form">
+                <div class="mb-4">
+                    <label class="block mb-2 font-medium">Consistance (Échelle de Bristol)</label>
+                    <div id="bristol-scale" class="grid grid-cols-4 gap-2 text-center text-xs">
+                    </div>
+                    <input type="hidden" id="stool-type" value="4">
+                </div>
+                <div class="mb-4">
+                    <label for="stool-color" class="block mb-2 font-medium">Couleur</label>
+                    <select id="stool-color" class="w-full bg-gray-600 border border-gray-500 text-white rounded-lg p-2.5">
+                        <option selected>Brun</option><option>Vert</option><option>Jaune</option><option>Noir</option><option>Pâle / Argile</option><option>Rouge</option>
+                    </select>
+                </div>
+                 <div class="mb-4 flex items-center">
+                    <input id="stool-pain" type="checkbox" class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded">
+                    <label for="stool-pain" class="ml-2 font-medium">Douleur / Difficulté</label>
+                </div>
+                <div class="mb-6">
+                    <label for="stool-datetime" class="block mb-2 font-medium">Date et heure</label>
+                    <input type="datetime-local" id="stool-datetime" class="w-full bg-gray-600 border border-gray-500 text-white rounded-lg p-2.5">
+                </div>
+                <div class="flex justify-end space-x-4">
+                    <button type="button" class="cancel-btn py-2 px-5 bg-gray-500 hover:bg-gray-600 rounded-lg font-medium">Annuler</button>
+                    <button type="submit" class="py-2 px-5 bg-amber-700 hover:bg-amber-800 rounded-lg font-bold">Enregistrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <div id="ai-analysis-modal" class="modal-backdrop hidden">
+        <div class="modal-content">
+            <h3 class="text-2xl font-bold mb-4">✨ Analyse Intelligente</h3>
+            <div id="ai-analysis-content" class="text-gray-300 bg-gray-800 p-4 rounded-lg min-h-[200px]">
+            </div>
+             <p class="text-xs text-gray-400 mt-2">Cette analyse est générée par une IA et ne constitue pas un avis médical. Consultez toujours un professionnel de santé.</p>
+            <div class="flex justify-end mt-6">
+                <button type="button" class="cancel-btn py-2 px-5 bg-gray-500 hover:bg-gray-600 rounded-lg font-medium">Fermer</button>
+            </div>
+        </div>
+    </div>
+
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        const clock = new THREE.Clock();
+        // --- Configuration et initialisation ---
+        const canvasContainer = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x334155); 
+
+        const camera = new THREE.PerspectiveCamera(50, canvasContainer.clientWidth / canvasContainer.clientHeight, 0.1, 1000);
+        camera.position.set(0, 1.5, 7);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        canvasContainer.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.target.set(0, 1, 0);
+
+        // --- Éclairage ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 2.5);
+        directionalLight.position.set(5, 10, 7.5);
+        scene.add(directionalLight);
+
+        // --- Mannequin ---
+        const bodyMaterial = new THREE.MeshStandardMaterial({
+            color: 0xcccccc,
+            roughness: 0.7,
+            metalness: 0.2
+        });
+        const bodyGroup = new THREE.Group();
+        scene.add(bodyGroup);
+
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.25, 32, 16), bodyMaterial);
+        head.position.y = 1.7;
+        bodyGroup.add(head);
+        const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.2, 16), bodyMaterial);
+        neck.position.y = 1.5;
+        bodyGroup.add(neck);
+        const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.25, 1.0, 32), bodyMaterial);
+        torso.position.y = 0.9;
+        bodyGroup.add(torso);
+        const hips = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.2, 32), bodyMaterial);
+        hips.position.y = 0.35;
+        bodyGroup.add(hips);
+        
+        const rightArmGroup = new THREE.Group();
+        rightArmGroup.position.set(-0.35, 1.3, 0);
+        bodyGroup.add(rightArmGroup);
+        const rightUpperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.09, 0.5, 16), bodyMaterial);
+        rightUpperArm.rotation.z = Math.PI / 2;
+        rightUpperArm.position.x = -0.25;
+        rightArmGroup.add(rightUpperArm);
+        const rightElbow = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), bodyMaterial);
+        rightElbow.position.x = -0.5;
+        rightArmGroup.add(rightElbow);
+        const rightLowerArm = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.07, 0.5, 16), bodyMaterial);
+        rightLowerArm.rotation.z = Math.PI / 2;
+        rightLowerArm.position.x = -0.75;
+        rightArmGroup.add(rightLowerArm);
+        const rightHand = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.2, 0.08), bodyMaterial);
+        rightHand.position.x = -1.1;
+        rightArmGroup.add(rightHand);
+
+        const leftArmGroup = new THREE.Group();
+        leftArmGroup.position.set(0.35, 1.3, 0);
+        bodyGroup.add(leftArmGroup);
+        const leftUpperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.09, 0.5, 16), bodyMaterial);
+        leftUpperArm.rotation.z = -Math.PI / 2;
+        leftUpperArm.position.x = 0.25;
+        leftArmGroup.add(leftUpperArm);
+        const leftElbow = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 16), bodyMaterial);
+        leftElbow.position.x = 0.5;
+        leftArmGroup.add(leftElbow);
+        const leftLowerArm = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.07, 0.5, 16), bodyMaterial);
+        leftLowerArm.rotation.z = -Math.PI / 2;
+        leftLowerArm.position.x = 0.75;
+        leftArmGroup.add(leftLowerArm);
+        const leftHand = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.2, 0.08), bodyMaterial);
+        leftHand.position.x = 1.1;
+        leftArmGroup.add(leftHand);
+
+        function createLeg(isLeft) {
+            const side = isLeft ? 1 : -1;
+            const legGroup = new THREE.Group();
+            legGroup.position.set(0.18 * side, 0.25, 0);
+            const upperLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.12, 0.6, 16), bodyMaterial);
+            upperLeg.position.y = -0.3;
+            legGroup.add(upperLeg);
+            const knee = new THREE.Mesh(new THREE.SphereGeometry(0.12, 16, 16), bodyMaterial);
+            knee.position.y = -0.65;
+            legGroup.add(knee);
+            const lowerLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.08, 0.6, 16), bodyMaterial);
+            lowerLeg.position.y = -1;
+            legGroup.add(lowerLeg);
+            const foot = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.1, 0.35), bodyMaterial);
+            foot.position.y = -1.35;
+            foot.position.z = 0.1;
+            legGroup.add(foot);
+            return legGroup;
+        }
+        bodyGroup.add(createLeg(true));
+        bodyGroup.add(createLeg(false));
+
+        // --- Zones de détection ---
+        const bodyParts = [];
+        const hitboxMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0x60a5fa,
+            transparent: true,
+            opacity: 0,
+            depthWrite: false
+        });
+
+        const bodyPartData = [
+            { name: 'Crâne', geometry: new THREE.SphereGeometry(0.28, 32, 16), position: [0, 1.7, 0] },
+            { name: 'Visage', geometry: new THREE.BoxGeometry(0.3, 0.35, 0.3), position: [0, 1.65, 0.1] },
+            { name: 'Nuque', geometry: new THREE.BoxGeometry(0.15, 0.2, 0.15), position: [0, 1.5, -0.05] },
+            { name: 'Gorge', geometry: new THREE.BoxGeometry(0.15, 0.2, 0.15), position: [0, 1.5, 0.05] },
+            { name: 'Épaule Droite', geometry: new THREE.SphereGeometry(0.18, 16, 16), position: [-0.4, 1.35, 0] },
+            { name: 'Épaule Gauche', geometry: new THREE.SphereGeometry(0.18, 16, 16), position: [0.4, 1.35, 0] },
+            { name: 'Poitrine Droite', geometry: new THREE.BoxGeometry(0.3, 0.4, 0.3), position: [-0.18, 1.1, 0.1] },
+            { name: 'Poitrine Gauche', geometry: new THREE.BoxGeometry(0.3, 0.4, 0.3), position: [0.18, 1.1, 0.1] },
+            { name: 'Abdomen Supérieur', geometry: new THREE.BoxGeometry(0.4, 0.3, 0.3), position: [0, 0.7, 0.1] },
+            { name: 'Abdomen Inférieur Droit', geometry: new THREE.BoxGeometry(0.2, 0.3, 0.3), position: [-0.1, 0.4, 0.1] },
+            { name: 'Abdomen Inférieur Gauche', geometry: new THREE.BoxGeometry(0.2, 0.3, 0.3), position: [0.1, 0.4, 0.1] },
+            { name: 'Hanche Droite', geometry: new THREE.BoxGeometry(0.2, 0.2, 0.3), position: [-0.2, 0.2, 0.05] },
+            { name: 'Hanche Gauche', geometry: new THREE.BoxGeometry(0.2, 0.2, 0.3), position: [0.2, 0.2, 0.05] },
+            { name: 'Omoplate Droite', geometry: new THREE.BoxGeometry(0.25, 0.35, 0.2), position: [-0.15, 1.1, -0.15] },
+            { name: 'Omoplate Gauche', geometry: new THREE.BoxGeometry(0.25, 0.35, 0.2), position: [0.15, 1.1, -0.15] },
+            { name: 'Haut du Dos (colonne)', geometry: new THREE.BoxGeometry(0.1, 0.5, 0.2), position: [0, 1.05, -0.15] },
+            { name: 'Bas du Dos (lombaires)', geometry: new THREE.BoxGeometry(0.3, 0.5, 0.2), position: [0, 0.5, -0.15] },
+            { name: 'Fesse Droite', geometry: new THREE.BoxGeometry(0.2, 0.3, 0.25), position: [-0.1, 0.2, -0.1] },
+            { name: 'Fesse Gauche', geometry: new THREE.BoxGeometry(0.2, 0.3, 0.25), position: [0.1, 0.2, -0.1] },
+            { name: 'Biceps Droit', geometry: new THREE.BoxGeometry(0.5, 0.2, 0.2), position: [-0.7, 1.35, 0] },
+            { name: 'Coude Droit', geometry: new THREE.SphereGeometry(0.11, 16, 16), position: [-0.95, 1.35, 0] },
+            { name: 'Avant-bras Droit', geometry: new THREE.BoxGeometry(0.5, 0.18, 0.18), position: [-1.2, 1.35, 0] },
+            { name: 'Poignet Droit', geometry: new THREE.SphereGeometry(0.08, 16, 16), position: [-1.45, 1.35, 0] },
+            { name: 'Main Droite', geometry: new THREE.BoxGeometry(0.2, 0.25, 0.1), position: [-1.6, 1.35, 0] },
+            { name: 'Biceps Gauche', geometry: new THREE.BoxGeometry(0.5, 0.2, 0.2), position: [0.7, 1.35, 0] },
+            { name: 'Coude Gauche', geometry: new THREE.SphereGeometry(0.11, 16, 16), position: [0.95, 1.35, 0] },
+            { name: 'Avant-bras Gauche', geometry: new THREE.BoxGeometry(0.5, 0.18, 0.18), position: [1.2, 1.35, 0] },
+            { name: 'Poignet Gauche', geometry: new THREE.SphereGeometry(0.08, 16, 16), position: [1.45, 1.35, 0] },
+            { name: 'Main Gauche', geometry: new THREE.BoxGeometry(0.2, 0.25, 0.1), position: [1.6, 1.35, 0] },
+            { name: 'Cuisse Droite', geometry: new THREE.CylinderGeometry(0.18, 0.14, 0.6, 16), position: [-0.18, -0.05, 0] },
+            { name: 'Genou Droit', geometry: new THREE.SphereGeometry(0.14, 16, 16), position: [-0.18, -0.4, 0] },
+            { name: 'Tibia Droit', geometry: new THREE.CylinderGeometry(0.14, 0.1, 0.6, 16), position: [-0.18, -0.75, 0] },
+            { name: 'Mollet Droit', geometry: new THREE.CylinderGeometry(0.1, 0.1, 0.5, 16), position: [-0.18, -0.8, -0.05] },
+            { name: 'Cheville Droite', geometry: new THREE.SphereGeometry(0.1, 16, 16), position: [-0.18, -1.1, 0] },
+            { name: 'Pied Droit', geometry: new THREE.BoxGeometry(0.2, 0.15, 0.4), position: [-0.18, -1.2, 0.1] },
+            { name: 'Cuisse Gauche', geometry: new THREE.CylinderGeometry(0.18, 0.14, 0.6, 16), position: [0.18, -0.05, 0] },
+            { name: 'Genou Gauche', geometry: new THREE.SphereGeometry(0.14, 16, 16), position: [0.18, -0.4, 0] },
+            { name: 'Tibia Gauche', geometry: new THREE.CylinderGeometry(0.14, 0.1, 0.6, 16), position: [0.18, -0.75, 0] },
+            { name: 'Mollet Gauche', geometry: new THREE.CylinderGeometry(0.1, 0.1, 0.5, 16), position: [0.18, -0.8, -0.05] },
+            { name: 'Cheville Gauche', geometry: new THREE.SphereGeometry(0.1, 16, 16), position: [0.18, -1.1, 0] },
+            { name: 'Pied Gauche', geometry: new THREE.BoxGeometry(0.2, 0.15, 0.4), position: [0.18, -1.2, 0.1] },
+        ];
+        
+        bodyPartData.forEach(part => {
+            const material = hitboxMaterial.clone();
+            const mesh = new THREE.Mesh(part.geometry, material);
+            mesh.position.set(...part.position);
+            mesh.name = part.name;
+            scene.add(mesh);
+            bodyParts.push(mesh);
+        });
+
+        // --- Gestion des données ---
+        let healthData = [];
+        const painPointsGroup = new THREE.Group();
+        scene.add(painPointsGroup);
+        let lastClickedPoint = null;
+        let lastClickedPartName = '';
+        let currentPainMode = 'new'; // 'new' or 'spike'
+        let parentPainId = null;
+
+        // --- Raycasting ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let hoveredPart = null;
+        let hoveredPainPoint = null;
+
+        // --- Éléments du DOM ---
+        const modals = {
+            pain: document.getElementById('pain-modal'),
+            urination: document.getElementById('urination-modal'),
+            stool: document.getElementById('stool-modal'),
+            meal: document.getElementById('meal-modal'),
+            aiAnalysis: document.getElementById('ai-analysis-modal')
+        };
+        const forms = {
+            pain: document.getElementById('pain-form'),
+            urination: document.getElementById('urination-form'),
+            stool: document.getElementById('stool-form'),
+            meal: document.getElementById('meal-form')
+        };
+        const tooltip = document.getElementById('tooltip');
+        
+        // --- Fonctions ---
+        const addPainPoint = (entry) => {
+             let painObject;
+            if (entry.isPermanent) {
+                const geometry = new THREE.TorusGeometry(0.06, 0.02, 16, 100);
+                const material = new THREE.MeshBasicMaterial({ color: 0xffa500 });
+                painObject = new THREE.Mesh(geometry, material);
+                painObject.rotation.x = Math.PI / 2;
+            } else if (entry.parentId) { // C'est un pic de douleur
+                const parentPain = healthData.find(p => p.id === entry.parentId);
+                if (!parentPain) return;
+                const geometry = new THREE.SphereGeometry(0.03, 16, 16);
+                const material = new THREE.MeshBasicMaterial({ color: 0xff4500 });
+                painObject = new THREE.Mesh(geometry, material);
+                // Positionner le pic légèrement à côté du parent
+                const offset = new THREE.Vector3( (Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.1);
+                painObject.position.copy(parentPain.position).add(offset);
+                entry.position = painObject.position.clone(); // Sauvegarder la position ajustée
+            } else {
+                const hue = (1 - (entry.intensity / 10)) * 120 / 360;
+                const intensityColor = new THREE.Color().setHSL(hue, 1, 0.6);
+                const geometry = new THREE.SphereGeometry(0.05, 16, 16);
+                const material = new THREE.MeshBasicMaterial({ color: intensityColor });
+                painObject = new THREE.Mesh(geometry, material);
+            }
+            
+            if (!entry.parentId) {
+                 painObject.position.copy(entry.position);
+            }
+
+            painObject.userData = entry;
+            painPointsGroup.add(painObject);
+        };
+
+        function setDateTime(elementId) {
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            document.getElementById(elementId).value = now.toISOString().slice(0, 16);
+        }
+
+        function openModal(modal) {
+            modal.classList.remove('hidden');
+        }
+
+        function closeModal(modal) {
+            modal.classList.add('hidden');
+        }
+
+        function updateHistoryList() {
+            const historyList = document.getElementById('history-list');
+            historyList.innerHTML = '';
+
+            if (healthData.length === 0) {
+                historyList.innerHTML = '<p id="no-history" class="text-gray-500">Aucune donnée pour le moment.</p>';
+                return;
+            }
+            
+            const sortedData = [...healthData].sort((a, b) => new Date(b.datetime) - new Date(a.datetime));
+
+            sortedData.forEach(entry => {
+                const date = new Date(entry.datetime);
+                const div = document.createElement('div');
+                div.className = 'bg-gray-700 p-3 rounded-lg text-sm';
+                let content = '';
+
+                const header = `
+                    <div class="flex justify-between items-center mb-2">
+                        <div class="flex items-center space-x-2">
+                            ${entry.type === 'pain' ? `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clip-rule="evenodd" /></svg>` : ''}
+                            ${entry.type === 'meal' ? `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-purple-400" viewBox="0 0 20 20" fill="currentColor"><path d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" /></svg>` : ''}
+                            ${entry.type === 'urination' ? `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-teal-400" viewBox="0 0 20 20" fill="currentColor"><path d="M5.5 16a3.5 3.5 0 01-3.478-3.98l1.107-5.537a1.5 1.5 0 011.47-1.233h8.798a1.5 1.5 0 011.472 1.233l1.106 5.537A3.5 3.5 0 0114.5 16h-9z" /><path d="M4.5 9.5a5.5 5.5 0 0011 0h-11z" /></svg>` : ''}
+                            ${entry.type === 'stool' ? `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-amber-500" viewBox="0 0 20 20" fill="currentColor"><path d="M5.5 16a3.5 3.5 0 01-3.478-3.98l1.107-5.537a1.5 1.5 0 011.47-1.233h8.798a1.5 1.5 0 011.472 1.233l1.106 5.537A3.5 3.5 0 0114.5 16h-9z" /></svg>` : ''}
+                            <p class="font-bold">${{pain: 'Douleur', urination: 'Miction', stool: 'Selles', meal: 'Repas'}[entry.type]}</p>
+                        </div>
+                        <span class="text-xs text-gray-400">${date.toLocaleDateString('fr-FR')} ${date.toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'})}</span>
+                    </div>`;
+
+                if (entry.type === 'pain') {
+                     const title = entry.parentId ? `Pic de douleur sur <strong>${healthData.find(p => p.id === entry.parentId)?.bodyPart || ''}</strong>` : `<strong>Zone:</strong> ${entry.bodyPart}`;
+                    const hue = (1 - (entry.intensity / 10)) * 120 / 360;
+                    const barColor = new THREE.Color().setHSL(hue, 0.9, 0.5).getStyle();
+                    content = `
+                        <p>${title}</p>
+                        <p><strong>Sensation:</strong> ${entry.sensation} - <strong>Durée:</strong> ${entry.duration}</p>
+                        <div class="flex items-center space-x-2 mt-1">
+                            <div class="w-full bg-gray-600 rounded-full h-2.5">
+                                <div class="h-2.5 rounded-full" style="width: ${entry.intensity * 10}%; background-color: ${barColor};"></div>
+                            </div>
+                            <span class="font-semibold text-sm">${entry.intensity}/10</span>
+                        </div>`;
+                } else if (entry.type === 'urination') {
+                    content = `<p><strong>Volume:</strong> ${entry.volume}, <strong>Couleur:</strong> ${entry.color}, <strong>Urgence:</strong> ${entry.urgency}${entry.pain ? ', <span class="text-red-400">Douleur</span>' : ''}</p>`;
+                } else if (entry.type === 'stool') {
+                    content = `<p><strong>Type:</strong> ${entry.stoolType}, <strong>Couleur:</strong> ${entry.color}${entry.pain ? ', <span class="text-red-400">Douleur</span>' : ''}</p>`;
+                } else if (entry.type === 'meal') {
+                    const tags = entry.tags.length > 0 ? `(${entry.tags.join(', ')})` : '';
+                    content = `<p><strong>Taille:</strong> ${entry.size} ${tags}</p>${entry.notes ? `<p class="text-gray-300 italic">"${entry.notes}"</p>`: ''}`;
+                }
+                div.innerHTML = header + content;
+                historyList.appendChild(div);
+            });
+        }
+
+        function saveDataToLocalStorage() {
+            localStorage.setItem('healthTrackerData', JSON.stringify(healthData));
+        }
+
+        function loadDataFromLocalStorage() {
+            const data = localStorage.getItem('healthTrackerData');
+            if (data) {
+                const parsedData = JSON.parse(data);
+                healthData = parsedData.map(entry => {
+                    if (entry.type === 'pain' && entry.position) {
+                        entry.position = new THREE.Vector3(entry.position.x, entry.position.y, entry.position.z);
+                    }
+                    return entry;
+                });
+
+                painPointsGroup.clear();
+                healthData.forEach(entry => {
+                    if (entry.type === 'pain' && entry.position) {
+                       addPainPoint(entry);
+                    }
+                });
+                updateHistoryList();
+            }
+        }
+
+        function handleCanvasClick(event) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            
+            // Priorité au clic sur un point de douleur existant
+            const painIntersects = raycaster.intersectObjects(painPointsGroup.children);
+            if (painIntersects.length > 0) {
+                const clickedPainData = painIntersects[0].object.userData;
+                if (clickedPainData.isPermanent) {
+                    currentPainMode = 'spike';
+                    parentPainId = clickedPainData.id;
+                    document.getElementById('pain-modal-title').textContent = 'Ajouter un Pic de Douleur';
+                    document.getElementById('permanent-pain-container').style.display = 'none';
+                    setDateTime('pain-datetime');
+                    openModal(modals.pain);
+                    return; // Stop further processing
+                }
+            }
+
+            // Sinon, vérifier le clic sur une partie du corps
+            const intersects = raycaster.intersectObjects(bodyParts);
+            if (intersects.length > 0) {
+                currentPainMode = 'new';
+                parentPainId = null;
+                lastClickedPoint = intersects[0].point;
+                lastClickedPartName = intersects[0].object.name;
+                document.getElementById('pain-modal-title').textContent = 'Ajouter une Douleur';
+                document.getElementById('permanent-pain-container').style.display = 'flex';
+                setDateTime('pain-datetime');
+                openModal(modals.pain);
+            }
+        }
+
+        function handleCanvasMouseMove(event) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            const hitboxIntersects = raycaster.intersectObjects(bodyParts);
+            if (hitboxIntersects.length > 0) {
+                const newHoveredPart = hitboxIntersects[0].object;
+                if (hoveredPart !== newHoveredPart) {
+                    if (hoveredPart) hoveredPart.material.opacity = 0;
+                    hoveredPart = newHoveredPart;
+                    hoveredPart.material.opacity = 0.4;
+                }
+            } else {
+                if (hoveredPart) {
+                    hoveredPart.material.opacity = 0;
+                    hoveredPart = null;
+                }
+            }
+
+            const painPointIntersects = raycaster.intersectObjects(painPointsGroup.children);
+            if (painPointIntersects.length > 0) {
+                hoveredPainPoint = painPointIntersects[0].object;
+                const data = hoveredPainPoint.userData;
+                const date = new Date(data.datetime);
+                tooltip.style.display = 'block';
+                tooltip.innerHTML = `<strong>${data.bodyPart}</strong><br>${date.toLocaleString('fr-FR')}<br>Intensité: ${data.intensity}/10<br>Sensation: ${data.sensation}`;
+                tooltip.style.left = `${event.clientX - sidebar.offsetWidth + 15}px`;
+                tooltip.style.top = `${event.clientY - 15}px`;
+            } else {
+                hoveredPainPoint = null;
+                tooltip.style.display = 'none';
+            }
+        }
+        
+        function handleWindowResize() {
+            camera.aspect = canvasContainer.clientWidth / canvasContainer.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+        }
+        
+        let targetRotationY = 0;
+        let isAnimatingRotation = false;
+
+        function animateRotation() {
+            isAnimatingRotation = true;
+            const currentRotationY = bodyGroup.rotation.y;
+            let diff = targetRotationY - currentRotationY;
+            if (diff > Math.PI) diff -= Math.PI * 2;
+            if (diff < -Math.PI) diff += Math.PI * 2;
+
+            if (Math.abs(diff) > 0.01) {
+                const rotationAmount = diff * 0.1;
+                bodyGroup.rotation.y += rotationAmount;
+                painPointsGroup.rotation.y += rotationAmount;
+                requestAnimationFrame(animateRotation);
+            } else {
+                bodyGroup.rotation.y = targetRotationY;
+                painPointsGroup.rotation.y = targetRotationY;
+                isAnimatingRotation = false;
+            }
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            
+            painPointsGroup.children.forEach(child => {
+                if (child.userData.isPermanent) {
+                    child.scale.setScalar(1 + Math.sin(clock.elapsedTime * 5) * 0.1);
+                }
+            });
+
+            if (!isAnimatingRotation) controls.update();
+            renderer.render(scene, camera);
+        }
+
+        // --- Écouteurs d'événements ---
+        document.getElementById('pain-intensity').addEventListener('input', (e) => {
+            document.getElementById('intensity-value').textContent = e.target.value;
+        });
+
+        forms.pain.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const newEntry = {
+                id: Date.now(),
+                type: 'pain',
+                bodyPart: lastClickedPartName,
+                intensity: document.getElementById('pain-intensity').value,
+                sensation: document.getElementById('pain-sensation').value,
+                datetime: document.getElementById('pain-datetime').value,
+                duration: document.getElementById('pain-duration').value || 'Non spécifiée',
+                position: lastClickedPoint,
+                isPermanent: currentPainMode === 'new' ? document.getElementById('pain-permanent').checked : false,
+                parentId: currentPainMode === 'spike' ? parentPainId : null
+            };
+            healthData.push(newEntry);
+            addPainPoint(newEntry);
+            updateHistoryList();
+            saveDataToLocalStorage();
+            closeModal(modals.pain);
+            forms.pain.reset();
+            document.getElementById('intensity-value').textContent = '5';
+        });
+
+        document.getElementById('add-meal-btn').addEventListener('click', () => {
+            setDateTime('meal-datetime');
+            openModal(modals.meal);
+        });
+
+        forms.meal.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const tags = [];
+            if(document.getElementById('meal-fatty').checked) tags.push('Gras');
+            if(document.getElementById('meal-sugary').checked) tags.push('Sucré');
+            if(document.getElementById('meal-salty').checked) tags.push('Salé');
+
+            const newEntry = {
+                id: Date.now(),
+                type: 'meal',
+                datetime: document.getElementById('meal-datetime').value,
+                size: document.getElementById('meal-size').value,
+                tags: tags,
+                notes: document.getElementById('meal-notes').value,
+            };
+            healthData.push(newEntry);
+            updateHistoryList();
+            saveDataToLocalStorage();
+            closeModal(modals.meal);
+            e.target.reset();
+        });
+
+        document.getElementById('add-urination-btn').addEventListener('click', () => {
+            setDateTime('urine-datetime');
+            openModal(modals.urination);
+        });
+
+        forms.urination.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const newEntry = {
+                id: Date.now(),
+                type: 'urination',
+                datetime: document.getElementById('urine-datetime').value,
+                volume: document.getElementById('urine-volume').value,
+                color: document.getElementById('urine-color').value,
+                urgency: document.getElementById('urine-urgency').value,
+                pain: document.getElementById('urine-pain').checked,
+            };
+            healthData.push(newEntry);
+            updateHistoryList();
+            saveDataToLocalStorage();
+            closeModal(modals.urination);
+        });
+
+        document.getElementById('add-stool-btn').addEventListener('click', () => {
+            setDateTime('stool-datetime');
+            openModal(modals.stool);
+        });
+
+        forms.stool.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const newEntry = {
+                id: Date.now(),
+                type: 'stool',
+                datetime: document.getElementById('stool-datetime').value,
+                stoolType: `Type ${document.getElementById('stool-type').value}`,
+                color: document.getElementById('stool-color').value,
+                pain: document.getElementById('stool-pain').checked,
+            };
+            healthData.push(newEntry);
+            updateHistoryList();
+            saveDataToLocalStorage();
+            closeModal(modals.stool);
+        });
+
+        document.querySelectorAll('.cancel-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                closeModal(btn.closest('.modal-backdrop'));
+            });
+        });
+
+        canvasContainer.addEventListener('click', handleCanvasClick);
+        canvasContainer.addEventListener('mousemove', handleCanvasMouseMove);
+        window.addEventListener('resize', handleWindowResize);
+        
+        document.getElementById('view-front-btn').addEventListener('click', () => {
+            targetRotationY = 0;
+            animateRotation();
+        });
+
+        document.getElementById('view-back-btn').addEventListener('click', () => {
+            targetRotationY = Math.PI;
+            animateRotation();
+        });
+
+        // --- Logique d'exportation ---
+        document.getElementById('save-json-btn').addEventListener('click', () => {
+            if (healthData.length === 0) return alert("Aucune donnée à sauvegarder.");
+            const dataStr = JSON.stringify(healthData, null, 2);
+            const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+            const linkElement = document.createElement('a');
+            linkElement.setAttribute('href', dataUri);
+            linkElement.setAttribute('download', 'suivi_sante.json');
+            linkElement.click();
+        });
+
+        document.getElementById('generate-pdf-btn').addEventListener('click', () => {
+            if (healthData.length === 0) return alert("Aucune donnée à exporter.");
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            doc.setFontSize(18);
+            doc.text("Rapport de Suivi de Santé", 14, 22);
+            doc.setFontSize(11);
+            doc.setTextColor(100);
+            doc.text(`Rapport généré le: ${new Date().toLocaleDateString('fr-FR')}`, 14, 30);
+
+            const tableData = healthData.sort((a, b) => new Date(a.datetime) - new Date(b.datetime)).map(entry => {
+                const date = new Date(entry.datetime).toLocaleString('fr-FR');
+                let details = '';
+                if (entry.type === 'pain') {
+                    details = `Zone: ${entry.bodyPart}, Intensité: ${entry.intensity}/10, Sensation: ${entry.sensation}`;
+                } else if (entry.type === 'urination') {
+                    details = `Volume: ${entry.volume}, Couleur: ${entry.color}, Urgence: ${entry.urgency}${entry.pain ? ', Douleur' : ''}`;
+                } else if (entry.type === 'stool') {
+                    details = `Type: ${entry.stoolType}, Couleur: ${entry.color}${entry.pain ? ', Douleur' : ''}`;
+                } else if (entry.type === 'meal') {
+                    const tags = entry.tags.length > 0 ? `(${entry.tags.join(', ')})` : '';
+                    details = `Taille: ${entry.size} ${tags}. ${entry.notes || ''}`;
+                }
+                return [
+                    {pain: 'Douleur', urination: 'Miction', stool: 'Selles', meal: 'Repas'}[entry.type],
+                    details,
+                    date
+                ];
+            });
+
+            doc.autoTable({
+                head: [['Type', 'Détails', 'Date & Heure']],
+                body: tableData,
+                startY: 40,
+                theme: 'grid',
+                headStyles: { fillColor: [41, 128, 185] }
+            });
+
+            doc.save('rapport_sante.pdf');
+        });
+        
+        const jsonUpload = document.getElementById('json-upload');
+        document.getElementById('load-json-btn').addEventListener('click', () => jsonUpload.click());
+
+        jsonUpload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const importedData = JSON.parse(e.target.result);
+                    if (Array.isArray(importedData)) {
+                        healthData = importedData.map(d => {
+                            if (d.type === 'pain' && d.position) {
+                                d.position = new THREE.Vector3(d.position.x, d.position.y, d.position.z);
+                            }
+                            return d;
+                        });
+                        painPointsGroup.clear();
+                        healthData.forEach(entry => {
+                            if (entry.type === 'pain' && entry.position) addPainPoint(entry);
+                        });
+                        updateHistoryList();
+                        saveDataToLocalStorage();
+                        alert('Données importées avec succès !');
+                    } else {
+                        throw new Error("Format de fichier non valide.");
+                    }
+                } catch (error) {
+                    alert('Erreur: ' + error.message);
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+        });
+        
+        // --- Initialisation Échelle de Bristol ---
+        const bristolScaleContainer = document.getElementById('bristol-scale');
+        const bristolData = [
+            { type: 1, text: "Type 1: Dures, en petits morceaux" },
+            { type: 2, text: "Type 2: En forme de saucisse, mais grumeleuse" },
+            { type: 3, text: "Type 3: En forme de saucisse, mais avec des craquelures" },
+            { type: 4, text: "Type 4: Lisse et douce, en forme de saucisse" },
+            { type: 5, text: "Type 5: Morceaux mous, avec des bords nets" },
+            { type: 6, text: "Type 6: Morceaux déchiquetés, pâteuse" },
+            { type: 7, text: "Type 7: Liquide, sans morceaux solides" },
+        ];
+        bristolData.forEach(item => {
+            const div = document.createElement('div');
+            div.className = 'bristol-item p-2 rounded-lg bg-gray-700 hover:bg-gray-600';
+            div.dataset.type = item.type;
+            div.innerHTML = `<img src="https://via.placeholder.com/60x40/4A5568/FFFFFF?text=Type+${item.type}" class="mx-auto mb-1 rounded" alt="Image de Échelle de Bristol type ${item.type}"><p>${item.text}</p>`;
+            if (item.type === 4) div.classList.add('selected');
+            bristolScaleContainer.appendChild(div);
+        });
+
+        bristolScaleContainer.addEventListener('click', (e) => {
+            const target = e.target.closest('.bristol-item');
+            if (!target) return;
+            bristolScaleContainer.querySelector('.selected').classList.remove('selected');
+            target.classList.add('selected');
+            document.getElementById('stool-type').value = target.dataset.type;
+        });
+
+        // --- Logique de l'Analyse IA ---
+        const aiAnalysisBtn = document.getElementById('ai-analysis-btn');
+        const aiAnalysisContent = document.getElementById('ai-analysis-content');
+
+        aiAnalysisBtn.addEventListener('click', async () => {
+            if (healthData.length < 3) {
+                alert("Veuillez enregistrer au moins 3 événements pour lancer une analyse pertinente.");
+                return;
+            }
+            
+            openModal(modals.aiAnalysis);
+            aiAnalysisContent.innerHTML = '<p>Analyse en cours, veuillez patienter...</p>';
+
+            // Formatter les données pour le prompt
+            const formattedData = healthData.map(entry => {
+                const date = new Date(entry.datetime).toLocaleString('fr-FR');
+                let details = `Date: ${date}, Type: ${entry.type}`;
+                if (entry.type === 'pain') {
+                    details += `, Zone: ${entry.bodyPart}, Intensité: ${entry.intensity}/10, Sensation: ${entry.sensation}`;
+                } else if (entry.type === 'meal') {
+                    details += `, Taille: ${entry.size}, Caractéristiques: ${entry.tags.join(', ') || 'Aucune'}, Notes: ${entry.notes || 'Aucune'}`;
+                } else if (entry.type === 'urination') {
+                    details += `, Volume: ${entry.volume}, Couleur: ${entry.color}, Douleur: ${entry.pain ? 'Oui' : 'Non'}`;
+                } else if (entry.type === 'stool') {
+                    details += `, Type: ${entry.stoolType}, Couleur: ${entry.color}, Douleur: ${entry.pain ? 'Oui' : 'Non'}`;
+                }
+                return details;
+            }).join('\n');
+
+            const prompt = `Tu es un assistant de santé bienveillant. Analyse le journal de santé suivant et identifie des corrélations ou des schémas intéressants entre les douleurs, les repas, et les autres événements. Présente tes observations sous forme de liste à puces en HTML (<ul><li>...</li></ul>). Ne donne pas de conseils médicaux, mais mets en évidence les associations que tu remarques. Par exemple, 'Il semble y avoir un lien entre les repas gras et les douleurs abdominales.' Voici les données :\n\n${formattedData}`;
+
+            try {
+                let chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+                const payload = { contents: chatHistory };
+                const apiKey = ""; // Laissé vide comme demandé
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Erreur API: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                
+                if (result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0) {
+                    const text = result.candidates[0].content.parts[0].text;
+                    aiAnalysisContent.innerHTML = text;
+                } else {
+                    throw new Error("La réponse de l'API est dans un format inattendu.");
+                }
+
+            } catch (error) {
+                console.error("Erreur lors de l'appel à l'API Gemini:", error);
+                aiAnalysisContent.innerHTML = `<p class="text-red-400">Désolé, une erreur est survenue lors de l'analyse. Veuillez réessayer plus tard.</p>`;
+            }
+        });
+
+        // --- Démarrage ---
+        loadDataFromLocalStorage();
+        animate();
+
+    </script>
+</body>
+</html>
